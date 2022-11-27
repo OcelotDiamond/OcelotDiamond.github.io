@@ -110,13 +110,11 @@ void main() {
 `);
 gl.compileShader(fragmentShader);
 
-// Attach shaders to program
 const program = gl.createProgram();
 gl.attachShader(program, vertexShader);
 gl.attachShader(program, fragmentShader);
 gl.linkProgram(program);
 
-// Get location of attribute
 const positionLocation = gl.getAttribLocation(program, `position`);
 gl.enableVertexAttribArray(positionLocation);
 gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
