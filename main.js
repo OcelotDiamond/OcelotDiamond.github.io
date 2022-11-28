@@ -70,8 +70,9 @@ for (let i = -1*Math.floor(gridSize/2); i < Math.ceil(gridSize/2); i++) {
 let tempColorData = [];
 
 for (let face = 0; face < vertexData.length/9; face++) {
-    let faceColor = randomColor();
+    //let faceColor = randomColor();
     for (let vertex = 0; vertex < 3; vertex++) {
+        let faceColor = randomColor();
         tempColorData.push(...faceColor);
     }
 }
