@@ -1,10 +1,16 @@
-import "./gl-matrix-min.js";
 const { mat2, mat2d, mat4, mat3, quat, quat2, vec2, vec3, vec4 } = glMatrix;
 
 function resizeWindow() {
     canvas.height = document.documentElement.clientHeight
     canvas.width = document.documentElement.clientWidth
-    mat4.perspective(projectionMatrix, 75*Math.PI/180, canvas.width/canvas.height, 1e-4, 1e4);
+}
+
+function mouseLockChange() {
+    if (document.pointerLockElement === canvas || document.mozPointerLockElement === canvas || document.webkitPointerLockElement === canvas) {
+        document.addEventListener("mousemove", updatePosition, false);
+    } else {
+        document.removeEventListener("mousemove", updatePosition, false);
+    }
 }
 
 function drawCube(x,y,z) {
@@ -30,6 +36,42 @@ function drawCube(x,y,z) {
     return points;
 }
 
+function drawCubeUv() {
+    const uv = repeat(6, [
+        1, 1,
+        1, 0,
+        0, 1,
+        0, 1,
+        1, 0,
+        0, 0 
+    ]);
+
+    return uv;
+}
+
+function getTexture(url) {
+    const texture = gl.createTexture();
+    const image = new Image();
+
+    image.onload = e => {
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+        
+        gl.generateMipmap(gl.TEXTURE_2D);
+    };
+
+    image.src = url;
+    return texture;
+}
+
+function repeat(n, pattern) {
+    return [...Array(n)].reduce(sum => sum.concat(pattern), []);
+}
+
 function base3(number) {
     if (number < 3 && number > -1) {
         return number;
@@ -37,14 +79,22 @@ function base3(number) {
     return number - Math.floor(number/3)*3
 }
 
+function isEven(n) {
+    return !(n%2);
+}
+
 function randomColor() {
     return [Math.random(), Math.random(), Math.random()];
 }
 
 const canvas = document.querySelector('canvas');
-const gl = canvas.getContext('webgl2');
+const gl = canvas.getContext('webgl2', {antialias: true});
 
 window.onresize = resizeWindow
+
+document.addEventListener('pointerlockchange', mouseLockChange, false);
+document.addEventListener('mozpointerlockchange', mouseLockChange, false);
+document.addEventListener('webkitpointerlockchange', mouseLockChange, false);
 
 // Check if webGL initialized properly
 if (!gl) {
@@ -57,15 +107,25 @@ gl.clear(gl.COLOR_BUFFER_BIT);
 
 let vertexData = [];
 
-const gridSize = 15;
+let uvData = [];
+
+const gridSize = 5;
 
 for (let i = -1*Math.floor(gridSize/2); i < Math.ceil(gridSize/2); i++) {
     for (let j = -1*Math.floor(gridSize/2); j < Math.ceil(gridSize/2); j++) {
         for (let k = -1*Math.floor(gridSize/2); k < Math.ceil(gridSize/2); k++) {
-            vertexData.push(...drawCube(i*2,j*2,k*2));
+            if (i!=0||j!=0||k!=0) {
+                vertexData.push(...drawCube(i*2,j*2,k*2));
+                uvData.push(...drawCubeUv());
+            }
         }
     }
 }
+
+const dirt = getTexture(`assets/dirt.png`);
+
+gl.activeTexture(gl.TEXTURE0);
+gl.bindTexture(gl.TEXTURE_2D, dirt);
 
 let tempColorData = [];
 
@@ -82,19 +142,19 @@ const positionBuffer = gl.createBuffer();
 gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
 gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertexData), gl.STATIC_DRAW);
 
-const colorBuffer = gl.createBuffer();
-gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
-gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colorData), gl.STATIC_DRAW);
+const uvBuffer = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, uvBuffer);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(uvData), gl.STATIC_DRAW);
 
 const vertexShader = gl.createShader(gl.VERTEX_SHADER);
 gl.shaderSource(vertexShader, `
 precision mediump float;
 attribute vec3 position;
-attribute vec3 color;
-varying vec3 vColor;
+attribute vec2 uv;
+varying vec2 vUV;
 uniform mat4 matrix;
 void main() {
-    vColor = color;
+    vUV = uv;
     gl_Position = matrix * vec4(position, 1);
 }
 `);
@@ -103,9 +163,10 @@ gl.compileShader(vertexShader);
 const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
 gl.shaderSource(fragmentShader, `
 precision mediump float;
-varying vec3 vColor;
+varying vec2 vUV;
+uniform sampler2D textureID;
 void main() {
-    gl_FragColor = vec4(vColor, 1);
+    gl_FragColor = texture2D(textureID, vUV);
 }
 `);
 gl.compileShader(fragmentShader);
@@ -120,24 +181,27 @@ gl.enableVertexAttribArray(positionLocation);
 gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
 gl.vertexAttribPointer(positionLocation, 3, gl.FLOAT, false, 0, 0);
 
-const colorLocation = gl.getAttribLocation(program, `color`);
-gl.enableVertexAttribArray(colorLocation);
-gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
-gl.vertexAttribPointer(colorLocation, 3, gl.FLOAT, false, 0, 0);
+const uvLocation = gl.getAttribLocation(program, `uv`);
+gl.enableVertexAttribArray(uvLocation);
+gl.bindBuffer(gl.ARRAY_BUFFER, uvBuffer);
+gl.vertexAttribPointer(uvLocation, 2, gl.FLOAT, false, 0, 0);
 
 gl.useProgram(program);
 gl.enable(gl.DEPTH_TEST);
 
 const uniformLocations = {
     modelMatrix: gl.getUniformLocation(program, 'matrix'),
+    textureID: gl.getUniformLocation(program, 'textureID')
 };
+
+gl.uniform1i(uniformLocations.textureID, 0);
 
 const modelMatrix = mat4.create();
 const viewMatrix = mat4.create();
 const projectionMatrix = mat4.create();
 
-mat4.translate(modelMatrix, modelMatrix, [0, 0, -2]);
-mat4.translate(viewMatrix, viewMatrix, [0, 0, 3.5]);
+mat4.translate(modelMatrix, modelMatrix, [0, 0, 0]);
+mat4.translate(viewMatrix, viewMatrix, [0, 0, 0]);
 mat4.invert(viewMatrix, viewMatrix);
 
 mat4.perspective(projectionMatrix, 70*Math.PI/180, canvas.width/canvas.height, 1e-4, 1e4);
@@ -149,13 +213,17 @@ canvas.requestPointerLock = canvas.requestPointerLock || canvas.mozRequestPointe
 
 canvas.onclick = function() {
     canvas.requestPointerLock();
-  };
+};
+
+function updatePosition(e) {
+    mat4.rotateX(viewMatrix, viewMatrix, e.movementY/300);
+    const rotation = quat.create();
+    mat4.getRotation(rotation, viewMatrix);
+    console.log(rotation);
+}
 
 function loadFrame() {
     requestAnimationFrame(loadFrame)
-    mat4.rotateX(viewMatrix, viewMatrix, Math.PI/2**10);
-    mat4.rotateY(viewMatrix, viewMatrix, Math.PI/2**10);
-    mat4.rotateZ(viewMatrix, viewMatrix, Math.PI/2**10);
     mat4.multiply(mvMatrix, viewMatrix, modelMatrix);
     mat4.multiply(mvpMatrix, projectionMatrix, mvMatrix);
     gl.uniformMatrix4fv(uniformLocations.modelMatrix, false, mvpMatrix);
