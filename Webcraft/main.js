@@ -97,7 +97,7 @@ function keyUpHandler(event) {
 }
 
 const canvas = document.querySelector('canvas');
-const gl = canvas.getContext('webgl2', {antialias: true});
+const gl = canvas.getContext('webgl', {antialias: true});
 const activeKeys = {};
 
 window.onresize = resizeWindow
